@@ -1197,11 +1197,11 @@ class BorgCore(val cfg: BorgConfig = BorgConfig.Default) extends Module {
       }
     }
     // One write port: the sweep wins over a fill, which only costs a hit.
-    when(fcSweeping) {
-      fcMem.write(fcSweepIdx, 0.U(fcWidth.W))
-    }.elsewhen(fcFill) {
-      fcMem.write(fcIndex(byteAddr), Cat(fcAddrReg, fcEpoch, memDataReg))
-    }
+    // A single .write call, so the memory gets one write port and can map to Block RAM.
+    val fcWen   = fcSweeping || fcFill
+    val fcWAddr = Mux(fcSweeping, fcSweepIdx, fcIndex(byteAddr))
+    val fcWData = Mux(fcSweeping, 0.U(fcWidth.W), Cat(fcAddrReg, fcEpoch, memDataReg))
+    when(fcWen) { fcMem.write(fcWAddr, fcWData) }
 
     /** Read FATTR's word from DRAM, then write it back (and cache it). */
     def attrFromMemory(): Unit = {

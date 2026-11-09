@@ -98,7 +98,7 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
 
     is(sFlush) {
       // Invalidate all cache lines at reset (one per cycle).
-      tagMem.write(flushIdx, 0.U)
+      // The tagMem write itself is below the switch (one shared write port).
       flushIdx := flushIdx + 1.U
       when(flushIdx === (numLines - 1).U) { state := sIdle }
     }
@@ -131,15 +131,12 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
       // Forward the memory controller response to the CPU and fill the cache
       // in the same cycle the response arrives.  The CPU is in sFetchResp
       // with resp.ready=true, so resp.fire coincides with mem.resp.fire.
+      // The tagMem write for the fill is below the switch (one shared write port).
       io.mem.resp.ready := true.B
       io.cpu.resp.valid := io.mem.resp.valid
       io.cpu.resp.bits  := io.mem.resp.bits
       when(io.mem.resp.fire) {
         dataMem.write(addrReg(indexBits - 1, 0), io.mem.resp.bits)
-        tagMem.write(
-          addrReg(indexBits - 1, 0),
-          Cat(true.B, addrReg(wordAddrWidth - 1, indexBits))
-        )
         dbgFillSeqReg      := dbgFillSeqReg + 1.U
         dbgFillWordAddrReg := addrReg
         dbgFillDataReg     := io.mem.resp.bits
@@ -147,4 +144,10 @@ class InstrCache(val wordAddrWidth: Int = 23, val numLines: Int = 512) extends M
       }
     }
   }
+
+  // One tag write port (flush or fill), so tagMem has one read and one write port and can map to Block RAM
+  val tagWen   = (state === sFlush) || (state === sMissWait && io.mem.resp.fire)
+  val tagWIdx  = Mux(state === sFlush, flushIdx, addrReg(indexBits - 1, 0))
+  val tagWData = Mux(state === sFlush, 0.U((tagBits + 1).W), Cat(true.B, addrReg(wordAddrWidth - 1, indexBits)))
+  when(tagWen) { tagMem.write(tagWIdx, tagWData) }
 }
